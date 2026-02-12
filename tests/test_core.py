@@ -20,3 +20,13 @@ def test_aggregate_hold_empty() -> None:
     assert direction == "HOLD"
     assert score == 0.0
     assert conf == 0.0
+
+
+def test_aggregate_respects_min_sources() -> None:
+    direction, score, conf = aggregate_signals(
+        [Signal(source="a", score=0.9, confidence=0.9)],
+        min_sources=2,
+    )
+    assert direction == "HOLD"
+    assert score == 0.0
+    assert conf == 0.0

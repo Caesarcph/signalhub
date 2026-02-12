@@ -32,6 +32,7 @@ def aggregate_signals(
     *,
     weights: dict[str, float] | None = None,
     min_confidence: float = 0.0,
+    min_sources: int = 1,
     buy_threshold: float = 0.2,
     sell_threshold: float = -0.2,
 ) -> tuple[Direction, float, float]:
@@ -41,8 +42,12 @@ def aggregate_signals(
 
     - weights: optional per-source weight multiplier (defaults to 1.0)
     - min_confidence: filters out low-confidence inputs
+    - min_sources: minimum number of accepted sources required
     - thresholds: decision cutoffs on the aggregated score
     """
+
+    if min_sources < 1:
+        raise ValueError(f"min_sources must be >= 1, got {min_sources}")
 
     w = weights or {}
     weighted_sum = 0.0
@@ -61,7 +66,7 @@ def aggregate_signals(
         weight_total += weight
         kept += 1
 
-    if kept == 0 or weight_total == 0:
+    if kept < min_sources or weight_total == 0:
         return "HOLD", 0.0, 0.0
 
     final_score = weighted_sum / weight_total
