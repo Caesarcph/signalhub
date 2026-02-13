@@ -25,6 +25,12 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument("--weights", help="JSON dict of weights by source")
     p.add_argument("--min-confidence", type=float, default=0.0)
+    p.add_argument(
+        "--min-sources",
+        type=int,
+        default=1,
+        help="Minimum number of accepted sources required to make a non-HOLD decision",
+    )
     p.add_argument("--buy-threshold", type=float, default=0.2)
     p.add_argument("--sell-threshold", type=float, default=-0.2)
     args = p.parse_args(argv)
@@ -36,6 +42,7 @@ def main(argv: list[str] | None = None) -> None:
         signals,
         weights=_parse_weights(args.weights),
         min_confidence=args.min_confidence,
+        min_sources=args.min_sources,
         buy_threshold=args.buy_threshold,
         sell_threshold=args.sell_threshold,
     )
