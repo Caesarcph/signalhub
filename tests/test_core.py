@@ -32,6 +32,18 @@ def test_aggregate_respects_min_sources() -> None:
     assert conf == 0.0
 
 
+def test_aggregate_invalid_thresholds() -> None:
+    try:
+        aggregate_signals(
+            [Signal(source="a", score=0.1, confidence=0.9)],
+            buy_threshold=0.0,
+            sell_threshold=0.0,
+        )
+        assert False, "expected ValueError for invalid thresholds"
+    except ValueError as e:
+        assert "buy_threshold" in str(e)
+
+
 def test_aggregate_detailed_breakdown() -> None:
     direction, score, conf, breakdown = aggregate_signals_detailed(
         [

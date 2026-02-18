@@ -86,6 +86,11 @@ def aggregate_signals_detailed(
 
     if min_sources < 1:
         raise ValueError(f"min_sources must be >= 1, got {min_sources}")
+    if buy_threshold <= sell_threshold:
+        raise ValueError(
+            "buy_threshold must be greater than sell_threshold, "
+            f"got buy_threshold={buy_threshold}, sell_threshold={sell_threshold}"
+        )
 
     w = weights or {}
     weighted_sum = 0.0
