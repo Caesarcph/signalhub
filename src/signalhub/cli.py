@@ -8,9 +8,22 @@ from .core import Signal, aggregate_signals, aggregate_signals_detailed
 
 
 def _parse_weights(text: str | None) -> dict[str, float]:
+    """Parse CLI --weights JSON into a ``source -> weight`` mapping."""
     if not text:
         return {}
-    return {k: float(v) for k, v in json.loads(text).items()}
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--weights must be valid JSON: {exc.msg}") from exc
+
+    if not isinstance(raw, dict):
+        raise ValueError("--weights must be a JSON object, e.g. '{\"rsi\": 0.3}'")
+
+    try:
+        return {str(k): float(v) for k, v in raw.items()}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("--weights values must be numeric") from exc
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -40,11 +53,23 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = p.parse_args(argv)
 
-    raw: list[dict[str, Any]] = json.loads(args.signals)
-    signals = [Signal(**item) for item in raw]
+    try:
+        raw: list[dict[str, Any]] = json.loads(args.signals)
+    except json.JSONDecodeError as exc:
+        p.error(f"--signals must be valid JSON: {exc.msg}")
+
+    try:
+        signals = [Signal(**item) for item in raw]
+    except (TypeError, ValueError) as exc:
+        p.error(f"invalid signal payload: {exc}")
+
+    try:
+        parsed_weights = _parse_weights(args.weights)
+    except ValueError as exc:
+        p.error(str(exc))
 
     common_kwargs = {
-        "weights": _parse_weights(args.weights),
+        "weights": parsed_weights,
         "min_confidence": args.min_confidence,
         "min_sources": args.min_sources,
         "buy_threshold": args.buy_threshold,
