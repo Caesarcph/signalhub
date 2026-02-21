@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any
 
 from .core import Signal, aggregate_signals, aggregate_signals_detailed
 
@@ -54,9 +53,15 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
 
     try:
-        raw: list[dict[str, Any]] = json.loads(args.signals)
+        raw = json.loads(args.signals)
     except json.JSONDecodeError as exc:
         p.error(f"--signals must be valid JSON: {exc.msg}")
+
+    if not isinstance(raw, list):
+        p.error("--signals must be a JSON list")
+
+    if not all(isinstance(item, dict) for item in raw):
+        p.error("--signals entries must be JSON objects")
 
     try:
         signals = [Signal(**item) for item in raw]

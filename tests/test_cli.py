@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from signalhub.cli import main
 
 
@@ -21,3 +23,19 @@ def test_cli_detailed_output(capsys) -> None:
 
     assert set(payload.keys()) == {"direction", "score", "confidence", "breakdown"}
     assert set(payload["breakdown"].keys()) == {"a", "b"}
+
+
+def test_cli_rejects_non_list_signals(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["--signals", '{"source":"a","score":1.0,"confidence":1.0}'])
+
+    err = capsys.readouterr().err
+    assert "--signals must be a JSON list" in err
+
+
+def test_cli_rejects_non_object_entries(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["--signals", '[1,2,3]'])
+
+    err = capsys.readouterr().err
+    assert "--signals entries must be JSON objects" in err
