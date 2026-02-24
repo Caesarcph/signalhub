@@ -46,6 +46,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--buy-threshold", type=float, default=0.2)
     p.add_argument("--sell-threshold", type=float, default=-0.2)
     p.add_argument(
+        "--conflict-resolution",
+        choices=["neutral", "conservative", "aggressive"],
+        default="neutral",
+        help="How to handle conflicting buy/sell contributions",
+    )
+    p.add_argument(
         "--detailed",
         action="store_true",
         help="Include per-source breakdown in output JSON",
@@ -79,6 +85,7 @@ def main(argv: list[str] | None = None) -> None:
         "min_sources": args.min_sources,
         "buy_threshold": args.buy_threshold,
         "sell_threshold": args.sell_threshold,
+        "conflict_resolution": args.conflict_resolution,
     }
 
     if args.detailed:

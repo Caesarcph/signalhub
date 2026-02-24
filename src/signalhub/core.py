@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import Iterable, Literal
 
 
+ConflictResolution = Literal["neutral", "conservative", "aggressive"]
+
+
 Direction = Literal["BUY", "SELL", "HOLD"]
 
 
@@ -35,6 +38,7 @@ def aggregate_signals(
     min_sources: int = 1,
     buy_threshold: float = 0.2,
     sell_threshold: float = -0.2,
+    conflict_resolution: ConflictResolution = "neutral",
 ) -> tuple[Direction, float, float]:
     """Aggregate multiple signals into a final decision.
 
@@ -44,6 +48,8 @@ def aggregate_signals(
     - min_confidence: filters out low-confidence inputs
     - min_sources: minimum number of accepted sources required
     - thresholds: decision cutoffs on the aggregated score
+    - conflict_resolution: neutral (default), conservative (dampen mixed inputs),
+      aggressive (slightly boost dominant side)
 
     Note:
         If you need per-source attribution, use :func:`aggregate_signals_detailed`.
@@ -56,6 +62,7 @@ def aggregate_signals(
         min_sources=min_sources,
         buy_threshold=buy_threshold,
         sell_threshold=sell_threshold,
+        conflict_resolution=conflict_resolution,
     )
     return direction, score, conf
 
@@ -68,6 +75,7 @@ def aggregate_signals_detailed(
     min_sources: int = 1,
     buy_threshold: float = 0.2,
     sell_threshold: float = -0.2,
+    conflict_resolution: ConflictResolution = "neutral",
 ) -> tuple[Direction, float, float, dict[str, dict[str, float]]]:
     """Aggregate multiple signals into a decision with per-source breakdown.
 
@@ -91,11 +99,17 @@ def aggregate_signals_detailed(
             "buy_threshold must be greater than sell_threshold, "
             f"got buy_threshold={buy_threshold}, sell_threshold={sell_threshold}"
         )
+    if conflict_resolution not in {"neutral", "conservative", "aggressive"}:
+        raise ValueError(
+            "conflict_resolution must be one of: neutral, conservative, aggressive"
+        )
 
     w = weights or {}
     weighted_sum = 0.0
     weight_total = 0.0
     conf_weighted_sum = 0.0
+    positive_sum = 0.0
+    negative_sum = 0.0
     kept = 0
     breakdown: dict[str, dict[str, float]] = {}
 
@@ -110,6 +124,10 @@ def aggregate_signals_detailed(
         contribution = s.score * effective_weight
         weighted_sum += contribution
         conf_weighted_sum += s.confidence * effective_weight
+        if contribution > 0:
+            positive_sum += contribution
+        elif contribution < 0:
+            negative_sum += abs(contribution)
         weight_total += effective_weight
         kept += 1
 
@@ -125,6 +143,15 @@ def aggregate_signals_detailed(
         return "HOLD", 0.0, 0.0, {}
 
     final_score = weighted_sum / weight_total
+
+    conflict_total = positive_sum + negative_sum
+    if conflict_total > 0 and positive_sum > 0 and negative_sum > 0:
+        conflict_ratio = min(positive_sum, negative_sum) / conflict_total
+        if conflict_resolution == "conservative":
+            final_score *= 1.0 - conflict_ratio
+        elif conflict_resolution == "aggressive":
+            boost = 1.0 + (conflict_ratio * 0.5)
+            final_score = max(-1.0, min(1.0, final_score * boost))
 
     # effective confidence: a conservative proxy [0,1]
     effective_conf = min(1.0, max(0.0, conf_weighted_sum / weight_total))

@@ -68,3 +68,18 @@ def test_aggregate_detailed_breakdown() -> None:
     denom = breakdown["a"]["effective_weight"] + breakdown["b"]["effective_weight"]
     numer = breakdown["a"]["contribution"] + breakdown["b"]["contribution"]
     assert score == numer / denom
+
+
+def test_conflict_resolution_conservative_dampens_score() -> None:
+    signals = [
+        Signal(source="a", score=1.0, confidence=1.0),
+        Signal(source="b", score=-0.8, confidence=1.0),
+    ]
+
+    _, neutral_score, _ = aggregate_signals(signals, conflict_resolution="neutral")
+    _, conservative_score, _ = aggregate_signals(
+        signals,
+        conflict_resolution="conservative",
+    )
+
+    assert abs(conservative_score) < abs(neutral_score)
