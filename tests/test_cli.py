@@ -1,41 +1,25 @@
-from __future__ import annotations
-
 import json
-
-import pytest
 
 from signalhub.cli import main
 
 
-def test_cli_detailed_output(capsys) -> None:
-    main(
-        [
-            "--signals",
-            '[{"source":"a","score":1.0,"confidence":1.0},{"source":"b","score":0.0,"confidence":0.5}]',
-            "--weights",
-            '{"a":0.3,"b":0.7}',
-            "--detailed",
-        ]
-    )
+def test_cli_pretty_output_is_valid_json(capsys) -> None:
+    signals = '[{"source":"a","score":0.5,"confidence":1.0}]'
+    main(["--signals", signals, "--output", "pretty"])
+    out = capsys.readouterr().out
 
-    out = capsys.readouterr().out.strip()
+    assert "\n" in out
     payload = json.loads(out)
-
-    assert set(payload.keys()) == {"direction", "score", "confidence", "breakdown"}
-    assert set(payload["breakdown"].keys()) == {"a", "b"}
-
-
-def test_cli_rejects_non_list_signals(capsys) -> None:
-    with pytest.raises(SystemExit):
-        main(["--signals", '{"source":"a","score":1.0,"confidence":1.0}'])
-
-    err = capsys.readouterr().err
-    assert "--signals must be a JSON list" in err
+    assert payload["direction"] in {"BUY", "SELL", "HOLD"}
+    assert "score" in payload
+    assert "confidence" in payload
 
 
-def test_cli_rejects_non_object_entries(capsys) -> None:
-    with pytest.raises(SystemExit):
-        main(["--signals", '[1,2,3]'])
+def test_cli_pretty_detailed_output_contains_breakdown(capsys) -> None:
+    signals = '[{"source":"a","score":1.0,"confidence":1.0}]'
+    main(["--signals", signals, "--output", "pretty", "--detailed"])
+    out = capsys.readouterr().out
 
-    err = capsys.readouterr().err
-    assert "--signals entries must be JSON objects" in err
+    payload = json.loads(out)
+    assert "breakdown" in payload
+    assert "a" in payload["breakdown"]

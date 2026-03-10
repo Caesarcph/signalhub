@@ -26,6 +26,11 @@ def _parse_weights(text: str | None) -> dict[str, float]:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Run the SignalHub CLI.
+
+    Args:
+        argv: Optional argument vector for testing.
+    """
     p = argparse.ArgumentParser(prog="signalhub")
     p.add_argument(
         "--signals",
@@ -55,6 +60,12 @@ def main(argv: list[str] | None = None) -> None:
         "--detailed",
         action="store_true",
         help="Include per-source breakdown in output JSON",
+    )
+    p.add_argument(
+        "--output",
+        choices=["json", "pretty"],
+        default="json",
+        help="Output format: compact JSON (default) or pretty-printed JSON",
     )
     args = p.parse_args(argv)
 
@@ -88,6 +99,8 @@ def main(argv: list[str] | None = None) -> None:
         "conflict_resolution": args.conflict_resolution,
     }
 
+    indent = 2 if args.output == "pretty" else None
+
     if args.detailed:
         direction, score, conf, breakdown = aggregate_signals_detailed(
             signals,
@@ -100,10 +113,16 @@ def main(argv: list[str] | None = None) -> None:
                     "score": score,
                     "confidence": conf,
                     "breakdown": breakdown,
-                }
+                },
+                indent=indent,
             )
         )
         return
 
     direction, score, conf = aggregate_signals(signals, **common_kwargs)
-    print(json.dumps({"direction": direction, "score": score, "confidence": conf}))
+    print(
+        json.dumps(
+            {"direction": direction, "score": score, "confidence": conf},
+            indent=indent,
+        )
+    )
