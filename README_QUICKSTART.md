@@ -18,5 +18,7 @@ signalhub \
 Output:
 
 ```json
-{"direction":"BUY","score":0.2,"confidence":0.73}
+{"direction": "HOLD", "score": 0.1909090909090909, "confidence": 0.7454545454545455}
 ```
+
+The aggregated score (0.19) is just below the default `--buy-threshold` of 0.2, so the decision is HOLD. Add `--detailed` for a per-source breakdown or `--output pretty` for indented JSON.

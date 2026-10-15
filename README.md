@@ -1,11 +1,12 @@
 # 🎯 SignalHub
 
-> Lightweight unified trading signal aggregator with multi-source integration, customizable weights, and REST API for any trading platform.
+> Lightweight trading signal aggregator: combine scores from multiple sources into one weighted BUY/SELL/HOLD decision. Multi-source adapters and a REST API for any trading platform are planned.
 
+[![CI](https://github.com/Caesarcph/signalhub/actions/workflows/ci.yml/badge.svg)](https://github.com/Caesarcph/signalhub/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](Dockerfile)
+
+> **Status:** Early-stage prototype. Implemented today: a dependency-free aggregation core (`Signal`, `aggregate_signals`, `aggregate_signals_detailed`) with per-source weights, confidence filtering, minimum-source rules, buy/sell thresholds, conflict resolution and per-source breakdown, plus a `signalhub` CLI. Not implemented yet: built-in sources (technical indicators, LLM, webhooks), YAML config, REST/WebSocket API, MT5 bridge, auto-tuning, Docker — see the Development Roadmap section below.
 
 ## 🎯 The Problem
 
@@ -19,12 +20,19 @@ But **how do you combine them intelligently?**
 
 ## ✨ The Solution
 
-SignalHub aggregates signals from any source into a unified, weighted score with:
+SignalHub aggregates signals into a unified, weighted score.
 
-- 🔌 **Universal Input**: REST API, WebSocket, or direct Python integration
-- ⚖️ **Smart Weighting**: Configurable weights with auto-tuning
-- 📊 **Conflict Resolution**: Handle contradictory signals gracefully
-- 🚀 **Real-time Output**: Sub-100ms latency for live trading
+**Available now:**
+
+- 🐍 **Python + CLI input**: build `Signal(source, score, confidence)` objects in Python, or pass a JSON list to the `signalhub` CLI
+- ⚖️ **Weighting**: per-source weight multipliers, scaled by each signal's confidence
+- 📊 **Conflict Resolution**: `neutral`, `conservative` (dampen mixed inputs) or `aggressive` (boost the dominant side)
+- 🧾 **Explainability**: per-source breakdown (weight, effective weight, contribution)
+
+**Planned:**
+
+- 🔌 **Universal Input**: REST API, WebSocket
+- 🤖 **Auto-tuning** of weights
 - 📡 **Universal Output**: REST, WebSocket, MT5, webhooks
 
 ## 🏗️ Architecture
@@ -67,56 +75,32 @@ SignalHub aggregates signals from any source into a unified, weighted score with
 └─────────────┘     └──────────────┘     └─────────────┘
 ```
 
+Today only the hub's **Weight**, **Aggregate** and **Filter** steps exist (in `core.py`). Inputs must already be normalized — `Signal` validates `score ∈ [-1, 1]` and `confidence ∈ [0, 1]` but does not convert raw values. The source adapters and the REST/WebSocket/MT5 outputs in the diagram are planned.
+
 ## 📁 Project Structure
 
 ```
 signalhub/
-├── core/
-│   ├── normalizer.py       # Convert signals to standard format
-│   ├── weighter.py         # Apply and manage weights
-│   ├── aggregator.py       # Combine signals
-│   ├── filter.py           # Confidence and quality filters
-│   └── registry.py         # Signal source management
-├── sources/
-│   ├── base_source.py      # Abstract source interface
-│   ├── technical/          # Built-in technical sources
-│   │   ├── moving_average.py
-│   │   ├── rsi.py
-│   │   └── macd.py
-│   ├── llm_source.py       # LLM signal adapter
-│   └── webhook_source.py   # External webhook receiver
-├── outputs/
-│   ├── rest_api.py         # FastAPI endpoints
-│   ├── websocket.py        # Real-time streaming
-│   ├── mt5_bridge.py       # MetaTrader 5 connector
-│   └── webhook_out.py      # Outbound webhooks
-├── config/
-│   ├── sources.yaml        # Source definitions
-│   ├── weights.yaml        # Weight configurations
-│   └── outputs.yaml        # Output configurations
-├── tuning/
-│   ├── auto_weight.py      # Automatic weight optimization
-│   └── backtest.py         # Weight backtesting
-├── api/
-│   ├── main.py             # FastAPI application
-│   ├── routes/
-│   │   ├── signals.py      # Signal endpoints
-│   │   ├── sources.py      # Source management
-│   │   └── config.py       # Configuration endpoints
-│   └── schemas/
+├── src/signalhub/
+│   ├── __init__.py         # exports Signal, aggregate_signals, aggregate_signals_detailed
+│   ├── core.py             # Signal dataclass + weighted aggregation / conflict resolution
+│   └── cli.py              # `signalhub` command-line entry point
 ├── tests/
-├── docker/
-└── docs/
+│   ├── test_cli.py
+│   └── test_core.py
+├── pyproject.toml
+└── README_QUICKSTART.md
 ```
+
+Planned modules (not yet created): `core/` split (normalizer, weighter, aggregator, filter, registry), `sources/` (base source, technical indicators, LLM adapter, webhook receiver), `outputs/` (REST API, WebSocket, MT5 bridge, outbound webhooks), `config/` (sources/weights/outputs YAML), `tuning/` (auto-weight, backtest), `api/` (FastAPI app).
 
 ## 🚀 Quick Start
 
 ### Installation
 
-```bash
-pip install signalhub
+Not published on PyPI yet; install from source (no runtime dependencies):
 
-# Or from source
+```bash
 git clone https://github.com/Caesarcph/signalhub.git
 cd signalhub
 pip install -e .
@@ -125,53 +109,97 @@ pip install -e .
 ### Basic Usage
 
 ```python
+from signalhub import Signal, aggregate_signals_detailed
+
+# Signals you computed elsewhere, already normalized to [-1, 1]
+signals = [
+    Signal(source="sma_crossover", score=1.0, confidence=0.9),
+    Signal(source="rsi", score=0.6, confidence=0.8),
+    Signal(source="llm_sentiment", score=0.8, confidence=0.7),
+]
+
+direction, score, confidence, breakdown = aggregate_signals_detailed(
+    signals,
+    weights={"sma_crossover": 0.3, "rsi": 0.2, "llm_sentiment": 0.5},
+    min_confidence=0.0,           # drop inputs below this confidence
+    min_sources=2,                # HOLD unless at least 2 sources are accepted
+    buy_threshold=0.2,
+    sell_threshold=-0.2,
+    conflict_resolution="conservative",  # or: neutral, aggressive
+)
+
+print(f"Signal: {direction}")              # BUY, SELL, or HOLD
+print(f"Score: {score:.2f}")               # -1.0 to 1.0
+print(f"Confidence: {confidence:.2f}")     # 0.0 to 1.0
+print(f"Components: {breakdown}")
+
+# Output:
+# Signal: BUY
+# Score: 0.83
+# Confidence: 0.79
+# Components: {
+#     'sma_crossover': {'signal': 1.0, 'weight': 0.3, 'effective_weight': 0.27, 'confidence': 0.9, 'contribution': 0.27},
+#     'rsi': {'signal': 0.6, 'weight': 0.2, 'effective_weight': 0.16, 'confidence': 0.8, 'contribution': 0.096},
+#     'llm_sentiment': {'signal': 0.8, 'weight': 0.5, 'effective_weight': 0.35, 'confidence': 0.7, 'contribution': 0.28}
+# }
+```
+
+How it works: each accepted signal gets `effective_weight = weight × confidence`; the final score is `Σ(score × effective_weight) / Σ effective_weight`, optionally adjusted by the conflict-resolution rule, then compared with the buy/sell thresholds. Use `aggregate_signals(...)` if you only need `(direction, score, confidence)`.
+
+### CLI
+
+```bash
+signalhub \
+  --signals '[{"source":"rsi","score":0.3,"confidence":0.8},{"source":"news","score":-0.1,"confidence":0.6}]' \
+  --weights '{"rsi": 1.0, "news": 0.5}' \
+  --min-sources 2 \
+  --output pretty
+```
+
+Other options: `--min-confidence`, `--buy-threshold`, `--sell-threshold`, `--conflict-resolution {neutral,conservative,aggressive}`, `--detailed` (include per-source breakdown). See [README_QUICKSTART.md](README_QUICKSTART.md).
+
+### Running Tests
+
+```bash
+pip install pytest
+pytest
+```
+
+## 🔭 Planned Design
+
+Everything in this section describes the target API and is **not implemented yet**.
+
+### Hub & Built-in Sources (planned)
+
+```python
+# Planned API — SignalHub, TechnicalSource and LLMSource do not exist yet
 from signalhub import SignalHub, TechnicalSource, LLMSource
 
-# Initialize hub
 hub = SignalHub()
-
-# Register signal sources
 hub.register_source(
     name="sma_crossover",
     source=TechnicalSource.sma_crossover(fast=10, slow=50),
     weight=0.3
 )
-
 hub.register_source(
     name="rsi",
     source=TechnicalSource.rsi(period=14, oversold=30, overbought=70),
     weight=0.2
 )
-
 hub.register_source(
     name="llm_sentiment",
     source=LLMSource(model="claude-sonnet-4-20250514"),
     weight=0.5
 )
 
-# Get aggregated signal
 signal = hub.get_signal("AAPL")
-
-print(f"Signal: {signal.direction}")  # BUY, SELL, or HOLD
-print(f"Strength: {signal.strength:.2f}")  # 0.0 to 1.0
-print(f"Confidence: {signal.confidence:.2f}")  # 0.0 to 1.0
-print(f"Components: {signal.breakdown}")
-
-# Output:
-# Signal: BUY
-# Strength: 0.72
-# Confidence: 0.85
-# Components: {
-#     'sma_crossover': {'signal': 1.0, 'weight': 0.3, 'contribution': 0.30},
-#     'rsi': {'signal': 0.6, 'weight': 0.2, 'contribution': 0.12},
-#     'llm_sentiment': {'signal': 0.8, 'weight': 0.5, 'contribution': 0.40}
-# }
+print(signal.direction, signal.strength, signal.confidence, signal.breakdown)
 ```
 
-### YAML Configuration
+### YAML Configuration (planned)
 
 ```yaml
-# config/sources.yaml
+# Planned: config/sources.yaml
 sources:
   sma_crossover:
     type: technical.sma_crossover
@@ -179,7 +207,7 @@ sources:
       fast_period: 10
       slow_period: 50
     weight: 0.25
-    
+
   rsi_signal:
     type: technical.rsi
     params:
@@ -187,7 +215,7 @@ sources:
       oversold: 30
       overbought: 70
     weight: 0.20
-    
+
   macd_signal:
     type: technical.macd
     params:
@@ -195,18 +223,18 @@ sources:
       slow: 26
       signal: 9
     weight: 0.15
-    
+
   sentiment:
     type: webhook
     endpoint: /webhook/sentiment
     weight: 0.20
-    
+
   llm_analysis:
     type: llm
     model: claude-sonnet-4-20250514
     weight: 0.20
 
-# config/weights.yaml
+# Planned: config/weights.yaml
 aggregation:
   method: weighted_average  # or: majority_vote, confidence_weighted
   min_sources: 2            # Require at least 2 active sources
@@ -219,69 +247,23 @@ filters:
   cooldown_seconds: 300     # Min time between signals
 ```
 
-### REST API
+### REST API (planned)
 
 ```bash
-# Start server
-uvicorn signalhub.api:app --host 0.0.0.0 --port 8080
-
-# Get signal
-curl http://localhost:8080/api/v1/signal/AAPL
-
-# Response:
-{
-  "symbol": "AAPL",
-  "direction": "BUY",
-  "strength": 0.72,
-  "confidence": 0.85,
-  "timestamp": "2024-12-15T14:30:00Z",
-  "breakdown": {
-    "sma_crossover": {
-      "raw_signal": 1.0,
-      "normalized": 1.0,
-      "weight": 0.25,
-      "contribution": 0.25
-    },
-    "rsi_signal": {
-      "raw_signal": 35,
-      "normalized": 0.6,
-      "weight": 0.20,
-      "contribution": 0.12
-    },
-    "llm_analysis": {
-      "raw_signal": "bullish",
-      "normalized": 0.8,
-      "weight": 0.20,
-      "contribution": 0.16
-    }
-  },
-  "metadata": {
-    "sources_active": 5,
-    "sources_agreeing": 4,
-    "conflict_detected": false
-  }
-}
-
-# Push external signal (webhook)
-curl -X POST http://localhost:8080/api/v1/webhook/sentiment \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "AAPL",
-    "signal": 0.75,
-    "confidence": 0.90,
-    "source": "finsentiment"
-  }'
-
-# Subscribe to real-time signals
-wscat -c ws://localhost:8080/ws/signals/AAPL
+# Planned: FastAPI server
+# GET  /api/v1/signal/AAPL          -> {"symbol", "direction", "strength", "confidence", "breakdown", "metadata"}
+# POST /api/v1/webhook/sentiment    <- {"symbol": "AAPL", "signal": 0.75, "confidence": 0.90, "source": "finsentiment"}
+# WS   /ws/signals/AAPL             -> real-time signal stream
 ```
 
 ## ⚖️ Weight Configuration
 
-### Static Weights
+### Static Weights (available)
+
+Pass a `weights` dict to `aggregate_signals` / `aggregate_signals_detailed` (or `--weights` on the CLI). Sources without an entry default to weight `1.0`.
 
 ```python
-hub.set_weights({
+aggregate_signals(signals, weights={
     "sma_crossover": 0.25,
     "rsi": 0.20,
     "macd": 0.15,
@@ -290,9 +272,10 @@ hub.set_weights({
 })
 ```
 
-### Dynamic Weights (Auto-Tuning)
+### Dynamic Weights / Auto-Tuning (planned)
 
 ```python
+# Planned API
 from signalhub.tuning import AutoWeightOptimizer
 
 optimizer = AutoWeightOptimizer(
@@ -300,24 +283,14 @@ optimizer = AutoWeightOptimizer(
     objective="sharpe_ratio",  # or: returns, win_rate
     lookback_days=90
 )
-
-# Run optimization
 optimal_weights = optimizer.optimize()
 hub.set_weights(optimal_weights)
-
-# Output:
-# Optimized weights (Sharpe: 1.45 → 1.82):
-# - sma_crossover: 0.25 → 0.18
-# - rsi: 0.20 → 0.12
-# - macd: 0.15 → 0.22
-# - sentiment: 0.20 → 0.28
-# - llm: 0.20 → 0.20
 ```
 
-### Conditional Weights
+### Conditional Weights (planned)
 
 ```python
-# Different weights for different market conditions
+# Planned API: different weights for different market conditions
 hub.set_conditional_weights({
     "trending": {  # When ADX > 25
         "sma_crossover": 0.35,
@@ -342,57 +315,60 @@ hub.set_conditional_weights({
 
 | Source Type | Status | Example |
 |-------------|--------|---------|
-| Technical Indicators | ✅ Built-in | SMA, EMA, RSI, MACD, BB |
-| Webhook | ✅ Built-in | Any HTTP POST |
-| LLM Analysis | ✅ Built-in | OpenAI, Anthropic |
-| WebSocket | ✅ Built-in | Real-time streams |
+| Custom Python | ✅ Available | Build `Signal` objects from any code |
+| CLI (JSON) | ✅ Available | `signalhub --signals '[...]'` |
+| Technical Indicators | 🔜 Planned | SMA, EMA, RSI, MACD, BB |
+| Webhook | 🔜 Planned | Any HTTP POST |
+| LLM Analysis | 🔜 Planned | OpenAI, Anthropic |
+| WebSocket | 🔜 Planned | Real-time streams |
 | TradingView | 🔜 Planned | Webhook alerts |
-| Custom Python | ✅ Built-in | Any callable |
 
 ### Output Destinations
 
 | Destination | Status | Description |
 |-------------|--------|-------------|
-| REST API | ✅ Built-in | JSON endpoints |
-| WebSocket | ✅ Built-in | Real-time push |
-| MT5 Bridge | ✅ Built-in | MetaTrader 5 |
-| Webhook | ✅ Built-in | Slack, Discord, etc. |
-| Database | ✅ Built-in | PostgreSQL, SQLite |
-| Custom | ✅ Built-in | Any Python function |
+| Python return value | ✅ Available | `(direction, score, confidence[, breakdown])` |
+| CLI JSON | ✅ Available | Compact or pretty-printed JSON on stdout |
+| REST API | 🔜 Planned | JSON endpoints |
+| WebSocket | 🔜 Planned | Real-time push |
+| MT5 Bridge | 🔜 Planned | MetaTrader 5 |
+| Webhook | 🔜 Planned | Slack, Discord, etc. |
+| Database | 🔜 Planned | PostgreSQL, SQLite |
 
 ## 🛠️ Development Roadmap
 
-### Phase 1: Core Engine (Weeks 1-2)
-- [ ] Signal normalization framework
-- [ ] Weighted aggregation logic
-- [ ] Conflict detection and resolution
-- [ ] Confidence scoring
+### Phase 1: Core Engine
+- [ ] Signal normalization framework (today: range validation only)
+- [x] Weighted aggregation logic
+- [x] Conflict detection and resolution
+- [x] Confidence scoring (confidence filter + effective confidence)
 
-### Phase 2: Source Adapters (Weeks 3-4)
+### Phase 2: Source Adapters
 - [ ] Technical indicator library
 - [ ] Webhook receiver
 - [ ] LLM source adapter
 - [ ] Source registry and management
 
-### Phase 3: API & Outputs (Weeks 5-6)
+### Phase 3: API & Outputs
+- [x] Command-line interface (JSON / pretty output, per-source breakdown)
 - [ ] FastAPI REST endpoints
 - [ ] WebSocket streaming
 - [ ] MT5 bridge connector
 - [ ] Webhook dispatcher
 
-### Phase 4: Configuration (Week 7)
+### Phase 4: Configuration
 - [ ] YAML configuration system
 - [ ] Hot-reload support
 - [ ] Configuration validation
 - [ ] Multi-symbol support
 
-### Phase 5: Auto-Tuning (Weeks 8-9)
+### Phase 5: Auto-Tuning
 - [ ] Weight optimization framework
 - [ ] Backtesting integration
 - [ ] Performance metrics
 - [ ] Conditional weight rules
 
-### Phase 6: Production Ready (Week 10)
+### Phase 6: Production Readiness
 - [ ] Docker containerization
 - [ ] Monitoring and metrics
 - [ ] Rate limiting
@@ -400,28 +376,35 @@ hub.set_conditional_weights({
 
 ## 📊 Example Use Cases
 
-### Case 1: Multi-Strategy Ensemble
+### Case 1: Multi-Strategy Ensemble (available today)
 
 ```python
-# Combine multiple trading strategies
-hub.register_source("momentum", MomentumStrategy(), weight=0.4)
-hub.register_source("mean_reversion", MeanReversionStrategy(), weight=0.3)
-hub.register_source("breakout", BreakoutStrategy(), weight=0.3)
+from signalhub import Signal, aggregate_signals
+
+# Scores produced by your own strategy code, normalized to [-1, 1]
+direction, score, conf = aggregate_signals(
+    [
+        Signal("momentum", momentum_score, 0.9),
+        Signal("mean_reversion", mean_reversion_score, 0.7),
+        Signal("breakout", breakout_score, 0.8),
+    ],
+    weights={"momentum": 0.4, "mean_reversion": 0.3, "breakout": 0.3},
+)
 ```
 
-### Case 2: Human + AI Hybrid
+### Case 2: Human + AI Hybrid (planned API)
 
 ```python
-# Combine human analysis with AI
+# Planned: combine human analysis with AI via built-in sources
 hub.register_source("manual", WebhookSource("/webhook/manual"), weight=0.5)
 hub.register_source("llm_claude", LLMSource("claude"), weight=0.25)
 hub.register_source("llm_gpt", LLMSource("gpt-4"), weight=0.25)
 ```
 
-### Case 3: Multi-Timeframe Confirmation
+### Case 3: Multi-Timeframe Confirmation (planned API)
 
 ```python
-# Require agreement across timeframes
+# Planned: require agreement across timeframes
 hub.register_source("signal_1h", TechnicalSource(timeframe="1H"), weight=0.3)
 hub.register_source("signal_4h", TechnicalSource(timeframe="4H"), weight=0.4)
 hub.register_source("signal_1d", TechnicalSource(timeframe="1D"), weight=0.3)
